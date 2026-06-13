@@ -60,19 +60,6 @@ fn injection_script_marks_diagnostic_build_and_reports_script_loaded() {
 }
 
 #[test]
-fn injection_script_fetches_ads_without_bridge() {
-    let script = assets::injection_script(57321);
-
-    assert!(script.contains("directFetchCodexPlusAds"));
-    assert!(script.contains("cacheBustCodexPlusAdUrl"));
-    assert!(script.contains("Date.now()"));
-    assert!(script.contains("BigPizzaV3/Ad-List"));
-    assert!(
-        !script.contains("codexPlusAds = normalizeCodexPlusAds(await postJson(\"/ads\", {}));")
-    );
-}
-
-#[test]
 fn injection_script_times_out_backend_bridge_calls_and_falls_back_to_helper() {
     let script = assets::injection_script(57321);
 
@@ -891,9 +878,6 @@ async fn list_targets_can_query_ipv6_loopback_cdp_endpoint() {
 
 #[tokio::test]
 async fn install_bridge_routes_binding_while_waiting_for_command_response() {
-    let temp = tempfile::tempdir().unwrap();
-    let log_path = temp.path().join("codex-plus.log");
-    codex_plus_core::diagnostic_log::set_diagnostic_log_path_for_tests(Some(log_path.clone()));
     let (url, request_rx) = spawn_cdp_server(|mut socket| async move {
         for expected_id in 1..=4 {
             let command = recv_json(&mut socket).await;
@@ -959,10 +943,6 @@ async fn install_bridge_routes_binding_while_waiting_for_command_response() {
         .await
         .expect("server task should finish without panicking");
     assert!(handled.load(Ordering::SeqCst));
-    let contents = std::fs::read_to_string(&log_path).unwrap();
-    assert!(contents.contains("bridge.resolve_start"));
-    assert!(contents.contains("bridge.resolve_ok"));
-    codex_plus_core::diagnostic_log::set_diagnostic_log_path_for_tests(None);
 }
 
 #[tokio::test]

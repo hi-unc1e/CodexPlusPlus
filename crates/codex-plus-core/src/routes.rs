@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -79,7 +78,6 @@ pub trait BridgeRuntimeService: Send + Sync {
     async fn backend_status(&self) -> anyhow::Result<Value>;
     async fn repair_backend(&self) -> anyhow::Result<Value>;
     async fn codex_model_catalog(&self) -> anyhow::Result<Value>;
-    async fn ads(&self) -> anyhow::Result<Value>;
     async fn zed_remote_status(&self) -> anyhow::Result<Value>;
     async fn resolve_zed_remote_host(&self, payload: Value) -> anyhow::Result<Value>;
     async fn fallback_zed_remote_request(&self, payload: Value) -> anyhow::Result<Value>;
@@ -117,17 +115,6 @@ pub async fn handle_bridge_request(
     path: &str,
     payload: Value,
 ) -> serde_json::Value {
-    let started = Instant::now();
-    let _ = crate::diagnostic_log::append_diagnostic_log(
-        "bridge.request",
-        json!({
-            "path": path,
-            "payload_keys": payload
-                .as_object()
-                .map(|object| object.keys().cloned().collect::<Vec<_>>())
-                .unwrap_or_default()
-        }),
-    );
     let result = match path {
         "/settings/get" => settings_value(&ctx, ctx.settings.get_settings().await).await,
         "/settings/set" => {
@@ -167,8 +154,6 @@ pub async fn handle_bridge_request(
         "/backend/status" => ctx.runtime.backend_status().await,
         "/backend/repair" => ctx.runtime.repair_backend().await,
         "/codex-model-catalog" | "/codex-config-model" => ctx.runtime.codex_model_catalog().await,
-        "/diagnostics/log" => diagnostic_log_value(payload.clone()),
-        "/ads" => ctx.runtime.ads().await,
         "/zed-remote/status" => ctx.runtime.zed_remote_status().await,
         "/zed-remote/resolve-host" => ctx.runtime.resolve_zed_remote_host(payload.clone()).await,
         "/zed-remote/fallback-request" => {
@@ -244,12 +229,6 @@ pub async fn handle_bridge_request(
                 .await
         }
         _ => {
-            let _ = crate::diagnostic_log::append_diagnostic_log(
-                "bridge.unknown_path",
-                json!({
-                    "path": path
-                }),
-            );
             return json!({
                 "status": "failed",
                 "session_id": "",
@@ -259,14 +238,6 @@ pub async fn handle_bridge_request(
     };
 
     let response = result.unwrap_or_else(|error| failed_from_error(&payload, error));
-    let _ = crate::diagnostic_log::append_diagnostic_log(
-        "bridge.response",
-        json!({
-            "path": path,
-            "elapsed_ms": started.elapsed().as_millis() as u64,
-            "status": response.get("status").and_then(Value::as_str).unwrap_or("")
-        }),
-    );
     response
 }
 
@@ -466,10 +437,6 @@ impl BridgeRuntimeService for CoreRuntimeService {
         Ok(crate::model_catalog::read_codex_model_catalog().await)
     }
 
-    async fn ads(&self) -> anyhow::Result<Value> {
-        crate::ads::fetch_ad_list().await
-    }
-
     async fn zed_remote_status(&self) -> anyhow::Result<Value> {
         Ok(crate::zed_remote::zed_remote_status())
     }
@@ -645,37 +612,6 @@ where
     T: serde::Serialize,
 {
     Ok(serde_json::to_value(result?)?)
-}
-
-fn diagnostic_log_value(payload: Value) -> anyhow::Result<Value> {
-    let event = payload
-        .get("event")
-        .and_then(Value::as_str)
-        .map(sanitize_diagnostic_event)
-        .unwrap_or_else(|| "event".to_string());
-    crate::diagnostic_log::append_diagnostic_log(&format!("renderer.{event}"), payload)?;
-    Ok(json!({
-        "status": "ok",
-        "message": "日志已记录"
-    }))
-}
-
-fn sanitize_diagnostic_event(event: &str) -> String {
-    let sanitized = event
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "event".to_string()
-    } else {
-        sanitized
-    }
 }
 
 fn archived_thread_value(result: anyhow::Result<Option<SessionRef>>) -> anyhow::Result<Value> {

@@ -715,34 +715,6 @@ async fn handle_helper_connection(
                     "helper.backend_repair_ok"
                 },
             )
-        } else if path == "/diagnostics/log" && matches!(method, "POST" | "OPTIONS") {
-            if method == "POST" {
-                let detail = serde_json::from_str::<serde_json::Value>(request_body)
-                    .unwrap_or_else(|error| {
-                        serde_json::json!({
-                            "parse_error": error.to_string(),
-                            "raw": request_body
-                        })
-                    });
-                let event = detail
-                    .get("event")
-                    .and_then(serde_json::Value::as_str)
-                    .map(sanitize_diagnostic_event)
-                    .unwrap_or_else(|| "event".to_string());
-                let _ = crate::diagnostic_log::append_diagnostic_log(
-                    &format!("renderer.{event}"),
-                    detail,
-                );
-            }
-            (
-                "200 OK".to_string(),
-                serde_json::to_vec(&serde_json::json!({
-                    "status": "ok",
-                    "message": "日志已记录"
-                }))?,
-                "application/json; charset=utf-8".to_string(),
-                "helper.diagnostics_log_ok",
-            )
         } else {
             (
                 "404 Not Found".to_string(),
